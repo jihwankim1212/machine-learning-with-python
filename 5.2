@@ -13,6 +13,7 @@ from sklearn.datasets import load_iris
 from sklearn.model_selection import cross_val_score
 # GridSearchCv (교차 검증을 사용한 그리드 서치)
 from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import ParameterGrid, StratifiedKFold
 # -------------------------------------------------------------- #
 
 # 5.2.1 간단한 그리드 서치
@@ -93,8 +94,8 @@ X_train, X_test, y_train, y_test = train_test_split(iris.data, iris.target, rand
 # plt.show()
 
 # GridSearchCv (교차 검증을 사용한 그리드 서치)
-param_grid = {'C' : [0.001, 0.01, 0.1, 1, 10, 100], 'gamma' : [0.001, 0.01, 0.1, 1, 10, 100]}
-print("매개변수 그리드 : \n{}".format(param_grid))
+# param_grid = {'C' : [0.001, 0.01, 0.1, 1, 10, 100], 'gamma' : [0.001, 0.01, 0.1, 1, 10, 100]}
+# print("매개변수 그리드 : \n{}".format(param_grid))
 # grid_search = GridSearchCV(SVC(), param_grid, cv=5)
 X_train, X_test, y_train, y_test = train_test_split(iris.data, iris.target, random_state=0)
 # grid_search.fit(X_train, y_train)
@@ -126,12 +127,54 @@ X_train, X_test, y_train, y_test = train_test_split(iris.data, iris.target, rand
 # plt.colorbar(scores_image, ax=axes.tolist())
 # plt.show()
 
-param_grid = [{'kernel':['rbf'], 'C': [0.001, 0.01, 0.1, 1, 10, 100], 'gamma':[0.001, 0.01, 0.1, 1, 10, 100]},
-              {'kernel':['linear'],'C':[0.001, 0.01, 0.1, 1, 10, 100]}]
-print("그리드 목록 \n{}".format(param_grid))
-grid_search = GridSearchCV(SVC(), param_grid, cv=5)
-grid_search.fit(X_train, y_train)
-print("최적 매개변수 : {}".format(grid_search.best_params_))
-print("최고 교차 검증 점수 : {:.2f}".format(grid_search.best_score_))
-result = pd.DataFrame(grid_search.cv_results_)
-display(result.T)
+# param_grid = [{'kernel':['rbf'], 'C': [0.001, 0.01, 0.1, 1, 10, 100], 'gamma':[0.001, 0.01, 0.1, 1, 10, 100]},
+#               {'kernel':['linear'],'C':[0.001, 0.01, 0.1, 1, 10, 100]}]
+# print("그리드 목록 \n{}".format(param_grid))
+# grid_search = GridSearchCV(SVC(), param_grid, cv=5)
+# grid_search.fit(X_train, y_train)
+# print("최적 매개변수 : {}".format(grid_search.best_params_))
+# print("최고 교차 검증 점수 : {:.2f}".format(grid_search.best_score_))
+# result = pd.DataFrame(grid_search.cv_results_)
+# display(result.T)
+
+param_grid = {'C': [0.001, 0.01, 0.1, 1, 10, 100], 'gamma': [0.001, 0.01, 0.1, 1, 10, 100]}
+scores = cross_val_score(GridSearchCV(SVC(), param_grid, cv=5), iris.data, iris.target, cv=5)
+print("교차 검증 점수      :", scores)
+print("교차 검증 평균 점수 :", scores.mean())
+
+def nested_cv(X, y, inner_cv, outer_cv, Classifier, parameter_grid):
+    outer_scores = []
+    # outer_cv의 분할을 순회하는 for 루프
+    # (split 메서드는 훈련과 테스트 세트에 해당하는 인덱스를 반환합니다.)
+    for training_samples, test_samples in outer_cv.split(X, y):
+        # 최적의 매개변수를 찾습니다.
+        best_params = {}
+        best_score = -np.inf
+        # 매개변수 그리드를 순회합니다.
+        for parameters in parameter_grid:
+            # 안쪽 교차 검증의 점수를 기록합니다.
+            cv_scores = []
+            # inner_cv의 분할을 순회하는 for 루프
+            for inner_train, inner_test in inner_cv.split(X[training_samples], y[training_samples]):
+                # 훈련 데이터와 주어진 매개변수로 분류기를 만듭니다.
+                clf = Classifier(**parameters)
+                clf.fit(X[inner_train], y[inner_train])
+                # 검증 세트로 평가합니다.
+                score = clf.score(X[inner_test], y[inner_test])
+                cv_scores.append(score)
+            # 안쪽 교차 검증의 평균 점수를 계산합니다.
+            mean_socre = np.mean(cv_scores)
+            if mean_socre >  best_score:
+                # 점수가 더 높으면 매개변수와 함께 기록합니다.
+                best_score = mean_socre
+                best_params = parameters
+            # 바깥쪽 훈련 데이터 전체를 사용해 분류기를 만듭니다.
+            clf = Classifier(**parameters)
+            clf.fit(X[training_samples], y[training_samples])
+            # 테스트 세트를 사용해 평가합니다.
+            outer_scores.append(clf.score(X[test_samples], y[test_samples]))
+        return np.array(outer_scores)
+
+# 중첩 교차 검증
+scores = nested_cv(iris.data, iris.target, StratifiedKFold(5), StratifiedKFold(5), SVC, ParameterGrid(param_grid))
+print("교차 검증 점수 : {}".format(scores))
